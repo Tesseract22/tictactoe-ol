@@ -4,7 +4,7 @@ use std::ops::Not;
 use std::{
     str,
     thread,
-    io::{prelude::*, BufReader},
+    io::prelude::*,
     net::{TcpListener, TcpStream},
 };
 const H: i32 = 640;
@@ -22,7 +22,7 @@ const CROSS_ARM_LEN: f32 = (CELL_W*2/3) as f32;
 const CROSS_ARM_THIC: f32 = (CELL_W/6) as f32;
 const CROSS_COLOR: Color = Color::RED;
 
-const FONT_SIZE: i32 = 40;
+const FONT_SIZE: i32 = 50;
 const FONT_COLOR: Color = Color::GREEN;
 #[derive(Copy, Clone, PartialEq, Debug)]
 enum Player {
@@ -72,17 +72,12 @@ fn create_shape(state: &mut State, x: i32, y: i32) -> bool {
 }
 
 type  Grid = [[Cell; 3]; 3];
-fn get_cell_from_pixel<'a>(grid: &'a mut Grid, x: i32, y: i32) -> &'a mut Cell {
-    let xc = (x / CELL_W) as usize;
-    let yc = (y / CELL_H) as usize;
-    return &mut grid[yc][xc];
-}
 fn get_center_from_cell(xc: i32, yc: i32) -> (i32, i32) {
     return (xc*CELL_W+CELL_W/2, yc*CELL_H+CELL_H/2);
 }
 
 fn check_cell(state: &mut State, y: usize, x: usize) {
-    if state.grid[x][y].content != Some(state.turn) {
+    if state.grid[y][x].content != Some(state.turn) {
         state.win = Win::Playing;
     }
 }
@@ -93,9 +88,17 @@ fn check_victory(state: &mut State, new_cx: i32, new_cy: i32) {
     for cx in 0..3 {
         check_cell(state, new_cy as usize, cx as usize);
     }
+    match state.win {
+        Win::Complete(_) => return,
+        _ => {},
+    }
     state.win = Win::Complete(Some(state.turn));
     for cy in 0..3 {
         check_cell(state, cy as usize, new_cx as usize);
+    }
+    match state.win {
+        Win::Complete(_) => return,
+        _ => {},
     }
     /*
         x
@@ -108,6 +111,10 @@ fn check_victory(state: &mut State, new_cx: i32, new_cy: i32) {
             check_cell(state, c as usize, c as usize);
         }
     }
+    match state.win {
+        Win::Complete(_) => return,
+        _ => {},
+    }
     /*
           x
          x
@@ -119,6 +126,10 @@ fn check_victory(state: &mut State, new_cx: i32, new_cy: i32) {
             check_cell(state, c as usize, 2-c as usize);
         }
     }
+
+
+}
+fn check_full(state: &mut State) {
     match state.win {
         Win::Complete(_) => {}
         _ => {
@@ -132,7 +143,6 @@ fn check_victory(state: &mut State, new_cx: i32, new_cy: i32) {
             }
         }
     }
-
 }
 
 fn annouce(s: &str, d: &mut RaylibDrawHandle) {
@@ -144,7 +154,6 @@ fn read_request(stream: &mut TcpStream) -> Option<Vec<u8>> {
     let mut size_buf = [0; 8];
     stream.read_exact(&mut size_buf).ok()?;
     let size = usize::from_be_bytes(size_buf);
-    eprintln!("size: {size}");
     let mut buf = vec![0; size];
     stream.read_exact(buf.as_mut_slice()).ok()?;
     return Some(buf);
@@ -152,7 +161,6 @@ fn read_request(stream: &mut TcpStream) -> Option<Vec<u8>> {
 fn read_coord(stream: &mut TcpStream) -> Option<(i32, i32)> {
     let request = read_request(stream)?;
     let s = std::str::from_utf8(&request.as_slice()).ok()?;
-    eprintln!("s: {s}");
 
     let mut it = s.split(' ');
     let x: i32 = it.next()?.parse().ok()?;
@@ -244,7 +252,6 @@ fn main() {
             }
             loop {
                 let coord = read_coord(&mut stream).unwrap();
-                println!("coord: {coord:?}");
                 tx.send(coord).unwrap();
                 let coord = rx2.recv().unwrap();
                 write_coord(&mut stream, coord);
@@ -301,6 +308,7 @@ fn main() {
             let yc = py / CELL_H;
             if create_shape(&mut state, xc, yc) {
                 check_victory(&mut state, xc, yc);
+                check_full(&mut state);
                 tx2.send((xc, yc)).unwrap();
                 state.turn = match state.turn {
                     Player::Circle => Player::Cross,
@@ -312,9 +320,8 @@ fn main() {
             match rx.try_recv() {
                 Ok((xc,yc)) => {
                     if create_shape(&mut state, xc, yc) {
-                        println!("coord: {xc} {yc}");
-
                         check_victory(&mut state, xc, yc);
+                        check_full(&mut state);
                         state.turn = match state.turn {
                             Player::Circle => Player::Cross,
                             Player::Cross => Player::Circle,
